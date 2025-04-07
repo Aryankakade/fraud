@@ -54,8 +54,9 @@ class FraudSystem:
 
     def load_data(self):
         """Load data from MySQL database"""
-        conn = mysql.connector.connect(**DB_CONFIG)
+        conn = None
         try:
+            conn = mysql.connector.connect(**DB_CONFIG)
             queries = {
                 'transactions': "SELECT * FROM transactions",
                 'users': "SELECT * FROM users",
@@ -69,7 +70,7 @@ class FraudSystem:
             st.error(f"Database error: {str(e)}")
             return None
         finally:
-            if conn.is_connected():
+            if conn and conn.is_connected():
                 conn.close()
 
     def merge_data(self, dataframes):
@@ -180,11 +181,13 @@ class FraudSystem:
 
     def start_monitoring(self):
         """Monitor transactions in background"""
-        conn = mysql.connector.connect(**DB_CONFIG)
-        cursor = conn.cursor(dictionary=True)
-        last_id = None
-        
+        conn = None
+        cursor = None
         try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            last_id = None
+            
             while not self.stop_monitoring:
                 cursor.execute("SELECT MAX(id) FROM transactions")
                 latest_id = cursor.fetchone()['MAX(id)']
@@ -223,12 +226,18 @@ class FraudSystem:
                     st.rerun()
                 
                 time.sleep(5)
+        except Exception as e:
+            st.error(f"Monitoring error: {str(e)}")
         finally:
-            cursor.close()
-            conn.close()
+            if cursor:
+                cursor.close()
+            if conn and conn.is_connected():
+                conn.close()
 
     def get_production_stats(self):
         """Get comprehensive production statistics from database"""
+        conn = None
+        cursor = None
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor(dictionary=True)
@@ -295,7 +304,9 @@ class FraudSystem:
             st.error(f"Database error: {str(e)}")
             return None
         finally:
-            if conn.is_connected():
+            if cursor:
+                cursor.close()
+            if conn and conn.is_connected():
                 conn.close()
 
 # ====================== ETL PIPELINE CLASS ======================
