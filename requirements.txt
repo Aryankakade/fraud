@@ -1,0 +1,10 @@
+streamlit
+pandas
+mysql-connector-python
+scikit-learn
+smtplib
+numpy
+plotly
+SQLAlchemy
+matplotlib
+Pillow
