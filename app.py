@@ -31,11 +31,15 @@ st.set_page_config(
 )
 
 # ====================== CONSTANTS ======================
+# Updated DB_CONFIG for Azure - Directly using values instead of secrets
 DB_CONFIG = {
-    'host': 'localhost',
-    'user': 'root',
-    'password': 'Aryankakade@143',
-    'database': 'fraud'
+    'host': "detect-db.mysql.database.azure.com",  # Azure MySQL server name
+    'user': "detect_db",  # Azure MySQL username
+    'password': "derutu@2711",  # Azure MySQL password
+    'database': "fraud",  # Your database name
+    'port': 3306,  # Default MySQL port
+    'ssl_ca': None,  # Add SSL cert path if required
+    'connect_timeout': 10
 }
 
 EMAIL_CONFIG = {
@@ -234,81 +238,6 @@ class FraudSystem:
             if conn and conn.is_connected():
                 conn.close()
 
-    def get_production_stats(self):
-        """Get comprehensive production statistics from database"""
-        conn = None
-        cursor = None
-        try:
-            conn = mysql.connector.connect(**DB_CONFIG)
-            cursor = conn.cursor(dictionary=True)
-            
-            # Basic stats
-            cursor.execute("""
-                SELECT 
-                    COUNT(*) as total_transactions,
-                    SUM(CASE WHEN fraud_classification = 'Fraud' THEN 1 ELSE 0 END) as fraud_count,
-                    AVG(amount) as avg_amount,
-                    MAX(amount) as max_amount,
-                    MIN(amount) as min_amount
-                FROM transactions
-                WHERE DATE(date) >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
-            """)
-            stats = cursor.fetchone()
-            
-            # Fraud patterns
-            cursor.execute("""
-                SELECT 
-                    use_chip,
-                    errors,
-                    COUNT(*) as count,
-                    AVG(amount) as avg_amount
-                FROM transactions
-                WHERE fraud_classification = 'Fraud'
-                GROUP BY use_chip, errors
-                ORDER BY count DESC
-                LIMIT 5
-            """)
-            fraud_patterns = cursor.fetchall()
-            
-            # Time-based fraud trends
-            cursor.execute("""
-                SELECT 
-                    DATE_FORMAT(date, '%Y-%m') as month,
-                    COUNT(*) as total_transactions,
-                    SUM(CASE WHEN fraud_classification = 'Fraud' THEN 1 ELSE 0 END) as fraud_count
-                FROM transactions
-                GROUP BY DATE_FORMAT(date, '%Y-%m')
-                ORDER BY month
-            """)
-            time_trends = cursor.fetchall()
-            
-            # Hourly fraud patterns
-            cursor.execute("""
-                SELECT 
-                    HOUR(date) as hour,
-                    COUNT(*) as total_transactions,
-                    SUM(CASE WHEN fraud_classification = 'Fraud' THEN 1 ELSE 0 END) as fraud_count
-                FROM transactions
-                GROUP BY HOUR(date)
-                ORDER BY hour
-            """)
-            hourly_stats = cursor.fetchall()
-            
-            return {
-                'basic_stats': stats,
-                'fraud_patterns': fraud_patterns,
-                'time_trends': time_trends,
-                'hourly_stats': hourly_stats
-            }
-        except Exception as e:
-            st.error(f"Database error: {str(e)}")
-            return None
-        finally:
-            if cursor:
-                cursor.close()
-            if conn and conn.is_connected():
-                conn.close()
-
 # ====================== ETL PIPELINE CLASS ======================
 class ETLPipeline:
     def __init__(self):
@@ -470,13 +399,11 @@ def apply_custom_styles():
         
         /* Alerts */
         .fraud-alert {
-            animation: pulse 0.5s infinite;
             background: #fff0f0 !important;
             color: #ff4b4b !important;
             border-left: 5px solid #ff4b4b !important;
         }
         .success-alert {
-            animation: pulse 0.5s 3;
             background: #e6ffed !important;
             color: #00a854 !important;
             border-left: 5px solid #00a854 !important;
@@ -494,12 +421,6 @@ def apply_custom_styles():
         .etl-failed {
             background: #ffebee !important;
             border-left: 5px solid #f44336 !important;
-        }
-        
-        @keyframes pulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.02); }
-            100% { transform: scale(1); }
         }
         
         /* Dashboard tiles */
@@ -531,117 +452,8 @@ def inject_animations():
             transform: scale(1.05);
             box-shadow: 0 5px 15px rgba(0,0,0,0.3);
         }
-        @keyframes pulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.05); }
-            100% { transform: scale(1); }
-        }
-        .fraud-alert {
-            animation: pulse 0.5s infinite;
-        }
-        .success-animation {
-            animation: pulse 0.5s 3;
-        }
     </style>
     """, unsafe_allow_html=True)
-
-# ====================== PRODUCTION DASHBOARD ======================
-def show_production_dashboard():
-    """Show advanced production dashboard with comprehensive analytics"""
-    st.title("📊 Advanced Production Analytics")
-    st.markdown("---")
-    
-    st.warning("""
-    ⚠️ **Live Production Environment**  
-    This dashboard shows comprehensive analytics from historical transaction data.
-    """)
-    
-    # Get production stats
-    stats = fraud_system.get_production_stats()
-    
-    if stats:
-        # Convert Decimal values in basic stats
-        total_transactions = int(stats['basic_stats']['total_transactions'])
-        fraud_count = int(stats['basic_stats']['fraud_count'])
-        avg_amount = float(stats['basic_stats']['avg_amount'])
-        
-        # Key Metrics
-        st.subheader("📈 Key Performance Indicators")
-        cols = st.columns(4)
-        with cols[0]:
-            st.metric("Total Transactions", total_transactions)
-        with cols[1]:
-            st.metric("Fraud Cases", fraud_count)
-        with cols[2]:
-            st.metric("Fraud Rate", f"{fraud_count/total_transactions:.2%}")
-        with cols[3]:
-            st.metric("Avg Transaction", f"${avg_amount:,.2f}")
-        
-        # Time Series Analysis
-        st.markdown("---")
-        st.subheader("🕒 Fraud Trends Over Time")
-        
-        if stats['time_trends']:
-            # Convert Decimal values in time trends
-            df_time = pd.DataFrame([{k: float(v) if isinstance(v, Decimal) else v 
-                                  for k, v in item.items()} 
-                                  for item in stats['time_trends']])
-            df_time['fraud_rate'] = df_time['fraud_count'] / df_time['total_transactions']
-            
-            fig = px.line(df_time, x='month', y='fraud_rate', 
-                         title="Monthly Fraud Rate Trend",
-                         labels={'month': 'Month', 'fraud_rate': 'Fraud Rate'},
-                         markers=True)
-            fig.update_traces(line_color='#ff4b4b', line_width=3)
-            fig.add_bar(x=df_time['month'], y=df_time['total_transactions'], 
-                       name='Total Transactions', marker_color='#93c5fd',
-                       yaxis='y2')
-            fig.update_layout(yaxis2=dict(title='Transaction Count', overlaying='y', side='right'))
-            st.plotly_chart(fig, use_container_width=True)
-        
-        # Fraud Patterns
-        st.markdown("---")
-        st.subheader("🔍 Fraud Patterns Analysis")
-        
-        cols = st.columns(2)
-        with cols[0]:
-            if stats['fraud_patterns']:
-                # Convert Decimal values in fraud patterns
-                df_patterns = pd.DataFrame([{k: float(v) if isinstance(v, Decimal) else v 
-                                          for k, v in item.items()} 
-                                          for item in stats['fraud_patterns']])
-                fig = px.bar(df_patterns, x='errors', y='count', color='use_chip',
-                             title="Top Fraud Patterns by Payment Method",
-                             labels={'errors': 'Error Type', 'count': 'Cases', 'use_chip': 'Payment Method'})
-                st.plotly_chart(fig, use_container_width=True)
-        
-        with cols[1]:
-            if stats['hourly_stats']:
-                # Convert Decimal values in hourly stats
-                df_hourly = pd.DataFrame([{k: float(v) if isinstance(v, Decimal) else v 
-                                         for k, v in item.items()} 
-                                         for item in stats['hourly_stats']])
-                df_hourly['fraud_rate'] = df_hourly['fraud_count'] / df_hourly['total_transactions']
-                fig = px.line(df_hourly, x='hour', y='fraud_rate',
-                             title="Hourly Fraud Pattern",
-                             labels={'hour': 'Hour of Day', 'fraud_rate': 'Fraud Rate'})
-                fig.update_traces(line_color='#ff4b4b', line_width=3)
-                st.plotly_chart(fig, use_container_width=True)
-        
-        # Model Management
-        st.markdown("---")
-        st.subheader("🤖 Model Management")
-        
-        cols = st.columns([3, 1])
-        with cols[0]:
-            if st.button("🔄 Retrain Model with Latest Data", type="primary"):
-                with st.spinner("Training model with latest transaction data..."):
-                    if fraud_system.train_model():
-                        st.success("Model retrained successfully!")
-                    else:
-                        st.error("Model retraining failed!")
-        with cols[1]:
-            st.metric("Model Version", "v2.1.4")
 
 # ====================== ETL PIPELINE PAGE ======================
 def show_etl_pipeline():
@@ -757,6 +569,104 @@ def show_etl_pipeline():
         ```
         """)
 
+# ====================== PROJECT DOCUMENTATION PAGE ======================
+def show_project_documentation():
+    """Show detailed project documentation"""
+    st.title("📑 Fraud Detection System Documentation")
+    st.markdown("---")
+    
+    with st.expander("📌 System Overview", expanded=True):
+        st.markdown("""
+        ### Introduction
+        This AI-powered Fraud Detection System is designed to identify suspicious financial transactions in real-time using machine learning. The system analyzes transaction patterns and flags potential fraud with 96.4% accuracy.
+
+        ### Key Features
+        - Real-time transaction monitoring
+        - Automated fraud alerts via email
+        - Historical data analysis
+        - Model training and versioning
+        - Comprehensive ETL pipeline
+        """)
+    
+    with st.expander("⚙️ System Architecture", expanded=False):
+        st.markdown("""
+        ### Components
+        1. **Data Layer**: MySQL database storing all transaction data
+        2. **Processing Layer**: Python-based ETL and machine learning
+        3. **Presentation Layer**: Streamlit web interface
+        4. **Alerting System**: SMTP email notifications
+
+        ### Technology Stack
+        - Python 3.10
+        - Scikit-learn (Random Forest Classifier)
+        - Streamlit for UI
+        - MySQL for data storage
+        - SMTP for email alerts
+        """)
+    
+    with st.expander("📊 Model Information", expanded=False):
+        st.markdown("""
+        ### Model Details
+        - **Algorithm**: Random Forest Classifier
+        - **Version**: v2.1.4
+        - **Accuracy**: 96.4%
+        - **Features Used**:
+          - Error indicators
+          - Payment method (chip/swipe)
+          - Transaction errors
+          - Historical patterns
+
+        ### Training Process
+        1. First train the model using historical data
+        2. Model is saved as fraud_model.pkl
+        3. Preprocessor saved as preprocessor.pkl
+        4. Model can be retrained with new data
+        """)
+    
+    with st.expander("🚀 Getting Started", expanded=False):
+        st.markdown("""
+        ### Initial Setup
+        1. Configure database connection in DB_CONFIG
+        2. Set up email credentials in EMAIL_CONFIG
+        3. Run the Streamlit app: `streamlit run app.py`
+
+        ### Usage Instructions
+        1. **Home Page**: System overview and features
+        2. **Live Testing**: Simulate transactions and test fraud detection
+        3. **ETL Pipeline**: Run data processing workflows
+        4. **Documentation**: System documentation (this page)
+
+        ### Model Retraining
+        To retrain the model with latest data:
+        1. Go to Live Testing page
+        2. Click "Retrain Model" button
+        3. Wait for training to complete
+        """)
+    
+    with st.expander("⚠️ Troubleshooting", expanded=False):
+        st.markdown("""
+        ### Common Issues
+        1. **Database Connection Errors**:
+           - Verify DB_CONFIG credentials
+           - Check network connectivity
+           - Ensure MySQL server is running
+
+        2. **Email Not Sending**:
+           - Verify SMTP credentials
+           - Check if less secure apps are allowed
+           - Try different SMTP port (465 or 587)
+
+        3. **Model Prediction Errors**:
+           - Ensure model files exist (fraud_model.pkl, preprocessor.pkl)
+           - Verify input data format matches training data
+           - Retrain model if data structure changes
+
+        4. **Streamlit Performance Issues**:
+           - Reduce data volume for testing
+           - Use st.cache for expensive computations
+           - Optimize database queries
+        """)
+
 # ====================== MAIN APP ======================
 def main():
     apply_custom_styles()
@@ -772,7 +682,7 @@ def main():
 
     # Navigation
     st.sidebar.title("Navigation")
-    page = st.sidebar.radio("", ["🏠 Home", "🔍 Live Testing", "📊 Production Analytics", "🔄 ETL Pipeline"])
+    page = st.sidebar.radio("", ["🏠 Home", "🔍 Live Testing", "🔄 ETL Pipeline", "📑 Project Documentation"])
 
     # -------------------- HOME PAGE --------------------
     if page == "🏠 Home":
@@ -851,19 +761,38 @@ def main():
         Emails sent will be marked as TEST messages.
         """)
         
+        # Model Management Section
+        st.markdown("---")
+        st.subheader("🤖 Model Management")
+        
+        cols = st.columns([3, 1])
+        with cols[0]:
+            if st.button("🔄 Retrain Model with Latest Data", type="primary", 
+                        help="First train the model before using monitoring features"):
+                with st.spinner("Training model with latest transaction data..."):
+                    if fraud_system.train_model():
+                        st.success("Model retrained successfully!")
+                    else:
+                        st.error("Model retraining failed!")
+        with cols[1]:
+            st.metric("Model Version", "v2.1.4")
+        
         # Email Settings
-        with st.expander("✉ Alert Configuration", expanded=True):
-            cols = st.columns(2)
-            with cols[0]:
-                EMAIL_CONFIG['sender'] = st.text_input("Sender Email", value=EMAIL_CONFIG['sender'])
-                EMAIL_CONFIG['password'] = st.text_input("App Password", type="password", value=EMAIL_CONFIG['password'])
-            with cols[1]:
-                EMAIL_CONFIG['receiver'] = st.text_input("Receiver Email", value=EMAIL_CONFIG['receiver'])
+        st.markdown("---")
+        st.subheader("✉ Alert Configuration")
+        
+        cols = st.columns(2)
+        with cols[0]:
+            EMAIL_CONFIG['sender'] = st.text_input("Sender Email", value=EMAIL_CONFIG['sender'])
+            EMAIL_CONFIG['password'] = st.text_input("App Password", type="password", value=EMAIL_CONFIG['password'])
+        with cols[1]:
+            EMAIL_CONFIG['receiver'] = st.text_input("Receiver Email", value=EMAIL_CONFIG['receiver'])
         
         # Test Transaction
+        st.markdown("---")
+        st.subheader("🧪 Test Transaction Simulation")
+        
         with st.form("test_transaction"):
-            st.subheader("Simulate Transaction")
-            
             cols = st.columns(3)
             with cols[0]:
                 amount = st.number_input("Amount ($)", min_value=0.0, value=150.0)
@@ -897,7 +826,7 @@ def main():
                         <p>Probability: {prob:.2%}</p>
                         <p><small>This is a test simulation only</small></p>
                         </div>
-                        """, unsafe_allow_html=True)
+                         """, unsafe_allow_html=True)
                         if fraud_system.send_alert("TEST_TXN", prob):
                             st.toast(f"📧 Test alert sent to {EMAIL_CONFIG['receiver']}")
                     else:
@@ -913,10 +842,10 @@ def main():
                         <p>Confidence: {1-prob:.2%}</p>
                         </div>
                         """, unsafe_allow_html=True)
-                
-            # Monitoring Controls
+        
+        # Monitoring Controls
         st.markdown("---")
-        st.subheader("Live Monitoring (Simulation)")
+        st.subheader("👁️ Live Monitoring (Simulation)")
         
         cols = st.columns([3, 1])
         with cols[0]:
@@ -933,12 +862,12 @@ def main():
                 st.success("Monitoring stopped")
             
             if st.session_state.alerts:
-                st.subheader("Recent Alerts (Test Only)")
+                st.subheader("🔔 Recent Alerts (Test Only)")
                 for alert in reversed(st.session_state.alerts[-5:]):
                     st.write(alert)
         
         with cols[1]:
-            st.subheader("Status")
+            st.subheader("📊 Status")
             if st.session_state.monitoring:
                 st.success("🟢 ACTIVE (TEST)")
                 st.metric("Last Check", time.strftime("%H:%M:%S"))
@@ -950,13 +879,13 @@ def main():
                 st.metric("Last Result", "FRAUD (TEST)" if pred == 1 else "CLEAN", 
                          f"{prob:.2%}" if pred == 1 else f"{1-prob:.2%}")
 
-    # -------------------- PRODUCTION DASHBOARD --------------------
-    elif page == "📊 Production Analytics":
-        show_production_dashboard()
-        
     # -------------------- ETL PIPELINE PAGE --------------------
     elif page == "🔄 ETL Pipeline":
         show_etl_pipeline()
+        
+    # -------------------- PROJECT DOCUMENTATION PAGE --------------------
+    elif page == "📑 Project Documentation":
+        show_project_documentation()
 
 if __name__ == "__main__":
     main()
